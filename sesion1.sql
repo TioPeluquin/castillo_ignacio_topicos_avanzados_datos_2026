@@ -465,6 +465,583 @@ END;
 /
 
 -- ========================================
+-- OBJETOS DE BASES DE DATOS - SESIÓN 6
+-- ========================================
+
+-- ========================================
+-- Crear Tipo de Objeto: cliente_obj
+-- ========================================
+-- DESCRIPCIÓN:
+-- Tipo de objeto que representa un cliente con atributos y métodos.
+-- 
+-- ATRIBUTOS:
+-- - cliente_id: Identificador único del cliente
+-- - nombre: Nombre completo del cliente
+-- - ciudad: Ciudad donde reside el cliente
+--
+-- MÉTODOS:
+-- - get_info(): Retorna información completa del cliente formateada
+--
+-- ========================================
+
+CREATE OR REPLACE TYPE cliente_obj AS OBJECT (
+    cliente_id NUMBER,
+    nombre VARCHAR2(50),
+    ciudad VARCHAR2(50),
+    MEMBER FUNCTION get_info RETURN VARCHAR2
+);
+/
+
+CREATE OR REPLACE TYPE BODY cliente_obj AS
+    MEMBER FUNCTION get_info RETURN VARCHAR2 IS
+    BEGIN
+        RETURN 'ID: ' || cliente_id || ', Nombre: ' || nombre || ', Ciudad: ' || ciudad;
+    END;
+END;
+/
+
+-- ========================================
+-- Crear Tabla Basada en Objetos
+-- ========================================
+
+CREATE TABLE clientes_obj OF cliente_obj (
+    cliente_id PRIMARY KEY
+);
+
+-- Insertar datos en tabla de objetos
+INSERT INTO clientes_obj VALUES (1, 'Juan Perez', 'Santiago');
+INSERT INTO clientes_obj VALUES (2, 'María Gomez', 'Valparaiso');
+INSERT INTO clientes_obj VALUES (3, 'Ana Lopez', 'Santiago');
+
+COMMIT;
+
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 6 (OBJETOS)
+-- ========================================
+
+
+DECLARE
+    -- Cursor que selecciona objetos de tipo cliente_obj
+    CURSOR cliente_obj_cursor IS
+        SELECT VALUE(c) AS cliente
+        FROM clientes_obj c
+        ORDER BY c.nombre ASC;
+    
+    -- Variable para almacenar el objeto
+    v_cliente cliente_obj;
+    v_contador NUMBER := 0;
+    
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('=== PRÁCTICA 1: Cursor Basado en Objeto ===');
+    DBMS_OUTPUT.PUT_LINE('Listado de Clientes (Nombre - Ciudad):');
+    DBMS_OUTPUT.PUT_LINE('------------------------------------------');
+    
+    -- Abrir cursor
+    OPEN cliente_obj_cursor;
+    
+    -- Procesar filas
+    LOOP
+        FETCH cliente_obj_cursor INTO v_cliente;
+        
+        EXIT WHEN cliente_obj_cursor%NOTFOUND;
+        
+        v_contador := v_contador + 1;
+        
+        -- Acceder a atributos del objeto
+        DBMS_OUTPUT.PUT_LINE(v_contador || '. ' || v_cliente.nombre || ' - ' || v_cliente.ciudad);
+        
+        -- Llamar a método del objeto
+        DBMS_OUTPUT.PUT_LINE('   Info Completa: ' || v_cliente.get_info());
+    END LOOP;
+    
+    DBMS_OUTPUT.PUT_LINE('------------------------------------------');
+    DBMS_OUTPUT.PUT_LINE('Total de clientes: ' || v_contador);
+    
+    -- Cerrar cursor
+    CLOSE cliente_obj_cursor;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        IF cliente_obj_cursor%ISOPEN THEN
+            CLOSE cliente_obj_cursor;
+        END IF;
+END;
+/
+
+-- ========================================
+-- PRÁCTICA 2: Cursor Explícito con Parámetro Basado en Objeto
+-- ========================================
+
+
+DECLARE
+    -- Cursor parametrizado basado en objeto
+    CURSOR cliente_obj_param_cursor(p_ciudad VARCHAR2) IS
+        SELECT VALUE(c) AS cliente
+        FROM clientes_obj c
+        WHERE c.ciudad = p_ciudad
+        FOR UPDATE;
+    
+    -- Variables para almacenar datos
+    v_cliente cliente_obj;
+    v_ciudad_param VARCHAR2(50) := 'Santiago';
+    v_contador NUMBER := 0;
+    
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('=== PRÁCTICA 2: Cursor Parametrizado de Objetos ===');
+    DBMS_OUTPUT.PUT_LINE('Procesando clientes de: ' || v_ciudad_param);
+    DBMS_OUTPUT.PUT_LINE('----------------------------------------------------------');
+    
+    -- Abrir cursor con parámetro
+    OPEN cliente_obj_param_cursor(v_ciudad_param);
+    
+    LOOP
+        FETCH cliente_obj_param_cursor INTO v_cliente;
+        
+        EXIT WHEN cliente_obj_param_cursor%NOTFOUND;
+        
+        v_contador := v_contador + 1;
+        
+        DBMS_OUTPUT.PUT_LINE('Registro ' || v_contador || ':');
+        DBMS_OUTPUT.PUT_LINE('  Información del Objeto: ' || v_cliente.get_info());
+        DBMS_OUTPUT.PUT_LINE('  ID: ' || v_cliente.cliente_id);
+        DBMS_OUTPUT.PUT_LINE('  Nombre: ' || v_cliente.nombre);
+        DBMS_OUTPUT.PUT_LINE('  Ciudad: ' || v_cliente.ciudad);
+        DBMS_OUTPUT.PUT_LINE('----------------------------------------------------------');
+    END LOOP;
+    
+    DBMS_OUTPUT.PUT_LINE('Total de clientes procesados en ' || v_ciudad_param || ': ' || v_contador);
+    
+    -- Cerrar cursor
+    CLOSE cliente_obj_param_cursor;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        IF cliente_obj_param_cursor%ISOPEN THEN
+            CLOSE cliente_obj_param_cursor;
+        END IF;
+END;
+/
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 7 (PROCEDIMIENTOS ALMACENADOS)
+-- ========================================
+CREATE OR REPLACE PROCEDURE aumentar_precio_producto (
+    p_producto_id IN NUMBER, 
+    p_porcentaje IN NUMBER
+) AS
+    v_precio_actual NUMBER;
+BEGIN
+    -- Intentar la actualización
+    UPDATE Productos
+    SET Precio = Precio + (Precio * p_porcentaje / 100)
+    WHERE ProductoID = p_producto_id;
+
+    -- Si no se afectó ninguna fila, el producto no existe
+    IF SQL%ROWCOUNT = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Error: El producto con ID ' || p_producto_id || ' no existe en la base de datos.');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Éxito: Precio del producto ' || p_producto_id || ' aumentado en un ' || p_porcentaje || '%.');
+    END IF;
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Ocurrió un error inesperado: ' || SQLERRM);
+        ROLLBACK;
+END;
+/
+-- PRACTICA 2 
+-- Bloque de prueba para el Ejercicio 1
+BEGIN
+    -- Prueba con producto existente (ID 1)
+    aumentar_precio_producto(1, 15); -- Aumenta 15%
+    -- Prueba con producto inexistente
+    aumentar_precio_producto(99, 10); 
+END;
+/
+CREATE OR REPLACE PROCEDURE contar_pedidos_cliente (
+    p_cliente_id IN NUMBER, 
+    p_cantidad OUT NUMBER
+) AS
+BEGIN
+    -- Contar registros para el cliente dado
+    SELECT COUNT(*) 
+    INTO p_cantidad
+    FROM Pedidos
+    WHERE ClienteID = p_cliente_id;
+
+    -- Si por alguna razón el resultado es nulo, asegurar que devuelva 0
+    IF p_cantidad IS NULL THEN
+        p_cantidad := 0;
+    END IF;
+END;
+/
+
+-- Bloque de prueba para el Ejercicio 2
+DECLARE
+    v_num_pedidos NUMBER;
+    v_id_test NUMBER := 1;
+BEGIN
+    contar_pedidos_cliente(v_id_test, v_num_pedidos);
+    DBMS_OUTPUT.PUT_LINE('El cliente con ID ' || v_id_test || ' tiene un total de ' || v_num_pedidos || ' pedidos.');
+END;
+/
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 8
+-- ========================================
+SELECT Nombre FROM Clientes
+WHERE ClienteID IN (
+    SELECT ClienteID FROM Pedidos
+    WHERE Total > (SELECT AVG(Total) FROM Pedidos)
+);
+CREATE OR REPLACE VIEW PedidosPorCiudad AS
+SELECT c.Ciudad, COUNT(p.PedidoID) AS TotalPedidos
+FROM Clientes c
+LEFT JOIN Pedidos p ON c.ClienteID = p.ClienteID
+GROUP BY c.Ciudad;
+
+DECLARE
+    v_total NUMBER := 600;
+    v_clasificacion VARCHAR2(20);
+BEGIN
+    v_clasificacion := CASE 
+        WHEN v_total > 1000 THEN 'Alto'
+        WHEN v_total > 500 THEN 'Medio'
+        ELSE 'Bajo'
+    END;
+    DBMS_OUTPUT.PUT_LINE('Clasificación: ' || v_clasificacion);
+EXCEPTION
+    WHEN VALUE_ERROR THEN
+        DBMS_OUTPUT.PUT_LINE('Error: Problema con los datos.');
+END;
+/
+DECLARE
+    unique_violation EXCEPTION;
+    PRAGMA EXCEPTION_INIT(unique_violation, -8001);
+BEGIN
+    INSERT INTO Clientes (ClienteID, Nombre, Ciudad)
+    VALUES (1, 'Carlos Ruiz', 'Concepción'); -- ID 1 ya existe
+EXCEPTION
+    WHEN unique_violation THEN
+        DBMS_OUTPUT.PUT_LINE('Error TimesTen: Violación de clave única (TT8001).');
+END;
+/
+DECLARE
+    CURSOR pedido_cursor IS
+        SELECT p.PedidoID, p.Total, c.Nombre
+        FROM Pedidos p
+        JOIN Clientes c ON p.ClienteID = c.ClienteID
+        WHERE p.Total > 500;
+    v_pedido_id NUMBER; v_total NUMBER; v_nombre VARCHAR2(50);
+BEGIN
+    OPEN pedido_cursor;
+    LOOP
+        FETCH pedido_cursor INTO v_pedido_id, v_total, v_nombre;
+        EXIT WHEN pedido_cursor%NOTFOUND;
+        DBMS_OUTPUT.PUT_LINE('Pedido ' || v_pedido_id || ': Total ' || v_total || ', Cliente: ' || v_nombre);
+    END LOOP;
+    CLOSE pedido_cursor;
+END;
+/
+DECLARE
+    CURSOR producto_cursor IS
+        SELECT ProductoID, Precio FROM Productos
+        WHERE Precio < 1000 FOR UPDATE;
+    v_id NUMBER; v_precio NUMBER;
+BEGIN
+    OPEN producto_cursor;
+    LOOP
+        FETCH producto_cursor INTO v_id, v_precio;
+        EXIT WHEN producto_cursor%NOTFOUND;
+        UPDATE Productos SET Precio = v_precio * 1.15
+        WHERE CURRENT OF producto_cursor;
+    END LOOP;
+    CLOSE producto_cursor;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+        IF producto_cursor%ISOPEN THEN CLOSE producto_cursor; END IF;
+END;
+/
+DECLARE
+    CURSOR cliente_cursor IS
+        SELECT c.Nombre, SUM(p.Total) AS Acumulado
+        FROM Clientes c
+        JOIN Pedidos p ON c.ClienteID = p.ClienteID
+        GROUP BY c.Nombre
+        HAVING SUM(p.Total) > 1000;
+    v_nom VARCHAR2(50); v_total NUMBER;
+BEGIN
+    FOR r IN cliente_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('Cliente: ' || r.Nombre || ' | Total: ' || r.Acumulado);
+    END LOOP;
+END;
+/
+DECLARE
+    CURSOR detalle_cursor IS
+        SELECT dp.DetalleID, dp.Cantidad
+        FROM DetallesPedidos dp
+        JOIN Pedidos p ON dp.PedidoID = p.PedidoID
+        WHERE p.FechaPedido < TO_DATE('2025-03-02', 'YYYY-MM-DD')
+        FOR UPDATE OF dp.Cantidad;
+BEGIN
+    FOR r IN detalle_cursor LOOP
+        UPDATE DetallesPedidos SET Cantidad = Cantidad + 1
+        WHERE CURRENT OF detalle_cursor;
+    END LOOP;
+    COMMIT;
+END;
+/
+-- 1. Crear Tipo y Cuerpo
+CREATE OR REPLACE TYPE cliente_obj AS OBJECT (
+    cliente_id NUMBER,
+    nombre VARCHAR2(50),
+    MEMBER FUNCTION get_info RETURN VARCHAR2
+);
+/
+CREATE OR REPLACE TYPE BODY cliente_obj AS
+    MEMBER FUNCTION get_info RETURN VARCHAR2 IS
+    BEGIN
+        RETURN 'ID: ' || cliente_id || ', Nombre: ' || nombre;
+    END;
+END;
+/
+
+-- 2. Tabla de Objetos y transferencia
+CREATE TABLE Clientes_Obj OF cliente_obj (cliente_id PRIMARY KEY);
+INSERT INTO Clientes_Obj (cliente_id, nombre)
+SELECT ClienteID, Nombre FROM Clientes;
+
+-- 3. Cursor para listar usando el método del objeto
+DECLARE
+    CURSOR c_obj IS SELECT VALUE(c) AS cli FROM Clientes_Obj c;
+    v_obj cliente_obj;
+BEGIN
+    OPEN c_obj;
+    LOOP
+        FETCH c_obj INTO v_obj;
+        EXIT WHEN c_obj%NOTFOUND;
+        DBMS_OUTPUT.PUT_LINE(v_obj.get_info());
+    END LOOP;
+    CLOSE c_obj;
+END;
+/
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 10 (PROCEDIMIENTOS ALMACENADOS AVANZADOS)
+-- ========================================
+CREATE OR REPLACE PROCEDURE actualizar_total_pedidos(
+    p_cliente_id IN NUMBER, 
+    p_porcentaje IN NUMBER DEFAULT 10
+) AS
+    -- Cursor para iterar sobre los pedidos del cliente con bloqueo de filas
+    CURSOR pedido_cursor IS
+        SELECT PedidoID, Total
+        FROM Pedidos
+        WHERE ClienteID = p_cliente_id
+        FOR UPDATE;
+BEGIN
+    -- Uso de bucle FOR para recorrer el cursor
+    FOR pedido IN pedido_cursor LOOP
+        UPDATE Pedidos
+        SET Total = pedido.Total * (1 + p_porcentaje / 100)
+        WHERE CURRENT OF pedido_cursor;
+        
+        DBMS_OUTPUT.PUT_LINE('Pedido ' || pedido.PedidoID || ': Nuevo total: ' || (pedido.Total * (1 + p_porcentaje / 100)));
+    END LOOP;
+
+    -- Verificar si se realizaron cambios[cite: 4]
+    IF SQL%ROWCOUNT = 0 THEN
+        DBMS_OUTPUT.PUT_LINE('El cliente ' || p_cliente_id || ' no tiene pedidos para actualizar.');
+    ELSE
+        COMMIT; -- Confirmar cambios si hubo éxito[cite: 4]
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+        ROLLBACK; -- Revertir en caso de error[cite: 4]
+END;
+/
+--EJERCICIO PRACTICO 2
+CREATE OR REPLACE PROCEDURE calcular_costo_detalle(
+    p_detalle_id IN NUMBER, 
+    p_costo IN OUT NUMBER
+) AS
+    v_precio NUMBER;
+    v_cantidad NUMBER;
+BEGIN
+    -- JOIN entre DetallesPedidos y Productos para obtener los valores[cite: 4]
+    SELECT p.Precio, d.Cantidad 
+    INTO v_precio, v_cantidad
+    FROM DetallesPedidos d
+    JOIN Productos p ON d.ProductoID = p.ProductoID
+    WHERE d.DetalleID = p_detalle_id;
+
+    p_costo := v_precio * v_cantidad;
+    DBMS_OUTPUT.PUT_LINE('Costo del detalle ' || p_detalle_id || ': ' || p_costo);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Detalle con ID ' || p_detalle_id || ' no encontrado.');[cite: 4]
+END;
+/
+
+-- Prueba del Ejercicio 2[cite: 4]
+DECLARE
+    v_costo_resultado NUMBER := 0;
+BEGIN
+    calcular_costo_detalle(1, v_costo_resultado);
+    DBMS_OUTPUT.PUT_LINE('Valor final en variable: ' || v_costo_resultado);
+END;
+/
+-- Prueba del Ejercicio 1[cite: 4]
+EXEC actualizar_total_pedidos(1);
+
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 11 (FUNCIONES ALMACENADAS)
+-- ========================================
+CREATE OR REPLACE FUNCTION calcular_edad_cliente(p_cliente_id IN NUMBER) 
+RETURN NUMBER AS
+    v_fecha_nacimiento DATE;
+    v_edad NUMBER;
+BEGIN
+    SELECT FechaNacimiento INTO v_fecha_nacimiento
+    FROM Clientes
+    WHERE ClienteID = p_cliente_id;
+
+    -- Cálculo de años entre la fecha actual y el nacimiento
+    v_edad := FLOOR(MONTHS_BETWEEN(SYSDATE, v_fecha_nacimiento) / 12);
+    RETURN v_edad;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Cliente con ID ' || p_cliente_id || ' no encontrado.');[cite: 5]
+END;
+/
+
+-- Prueba del Ejercicio 1
+SELECT Nombre, calcular_edad_cliente(ClienteID) AS Edad FROM Clientes;
+--EJERCICIO PRÁCTICO 2
+CREATE OR REPLACE FUNCTION obtener_precio_promedio 
+RETURN NUMBER AS
+    v_promedio NUMBER;
+BEGIN
+    SELECT AVG(Precio) INTO v_promedio FROM Productos;
+    RETURN v_promedio;
+END;
+/
+
+-- Prueba del Ejercicio 2: Listar productos por encima del promedio[cite: 5]
+SELECT Nombre, Precio
+FROM Productos
+WHERE Precio > obtener_precio_promedio();
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 12 
+-- ========================================
+-- 1. Función que calcula el total con 10% de descuento si supera 1000
+CREATE OR REPLACE FUNCTION calcular_total_con_descuento(p_pedido_id IN NUMBER) 
+RETURN NUMBER AS
+    v_total NUMBER;
+BEGIN
+    SELECT Total INTO v_total FROM Pedidos WHERE PedidoID = p_pedido_id;
+    
+    IF v_total > 1000 THEN
+        v_total := v_total * 0.9; -- Aplicar 10%[cite: 6]
+    END IF;
+    
+    RETURN v_total;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20004, 'Pedido con ID ' || p_pedido_id || ' no encontrado.');[cite: 6]
+END;
+/
+
+-- 2. Procedimiento que aplica el descuento usando la función anterior[cite: 6]
+CREATE OR REPLACE PROCEDURE aplicar_descuento_pedido(p_pedido_id IN NUMBER) AS
+    v_nuevo_total NUMBER;
+BEGIN
+    v_nuevo_total := calcular_total_con_descuento(p_pedido_id);
+    
+    UPDATE Pedidos SET Total = v_nuevo_total WHERE PedidoID = p_pedido_id;
+    
+    DBMS_OUTPUT.PUT_LINE('Total del pedido ' || p_pedido_id || ' actualizado a: ' || v_nuevo_total);
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+        ROLLBACK;
+END;
+/
+--EJERCICIO PRACTICO 2
+CREATE OR REPLACE TRIGGER validar_cantidad_detalle
+BEFORE INSERT OR UPDATE ON DetallesPedidos
+FOR EACH ROW
+BEGIN
+    -- Uso de :NEW para validar el valor entrante[cite: 6]
+    IF :NEW.Cantidad <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'La cantidad debe ser mayor a 0.');[cite: 6]
+    END IF;
+END;
+/
+-- ========================================
+-- EJERCICIOS PRÁCTICOS - SESIÓN 13
+-- ========================================
+-- Crear tabla de apoyo
+CREATE TABLE Inventario (ProductoID NUMBER PRIMARY KEY, Cantidad NUMBER);
+INSERT INTO Inventario VALUES (1, 10);
+INSERT INTO Inventario VALUES (2, 20);
+
+CREATE OR REPLACE PROCEDURE actualizar_inventario_pedido(p_pedido_id IN NUMBER) AS
+    CURSOR detalle_cursor IS SELECT ProductoID, Cantidad FROM DetallesPedidos WHERE PedidoID = p_pedido_id;
+    v_stock_actual NUMBER;
+BEGIN
+    FOR d IN detalle_cursor LOOP
+        SELECT Cantidad INTO v_stock_actual FROM Inventario WHERE ProductoID = d.ProductoID;
+        
+        SAVEPOINT antes_de_reducir; -- Marca punto de retorno
+        
+        IF v_stock_actual < d.Cantidad THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Stock insuficiente para producto ' || d.ProductoID);
+        END IF;
+        
+        UPDATE Inventario SET Cantidad = Cantidad - d.Cantidad WHERE ProductoID = d.ProductoID;
+    END LOOP;
+    COMMIT; -- Confirmar si todo salió bien[cite: 7]
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error detectado: ' || SQLERRM);
+        ROLLBACK TO antes_de_reducir; -- Revertir solo el último cambio fallido[cite: 7]
+        COMMIT; -- Salvar lo que sí se pudo procesar
+END;
+/
+--EJERCICIO PRÁCTICO 2
+-- 1. Dimensión Ciudad[cite: 7]
+CREATE TABLE Dim_Ciudad (CiudadID NUMBER PRIMARY KEY, Ciudad VARCHAR2(50));
+INSERT INTO Dim_Ciudad (CiudadID, Ciudad)
+SELECT ROWNUM, Ciudad FROM (SELECT DISTINCT Ciudad FROM Clientes);
+
+-- 2. Tabla de Hechos[cite: 7]
+CREATE TABLE Fact_Pedidos (
+    PedidoID NUMBER, 
+    ClienteID NUMBER, 
+    CiudadID NUMBER, 
+    FechaID NUMBER, 
+    Total NUMBER,
+    CONSTRAINT fk_dw_ciudad FOREIGN KEY (CiudadID) REFERENCES Dim_Ciudad(CiudadID)
+);
+
+-- 3. Carga ETL (Simplificada)[cite: 7]
+INSERT INTO Fact_Pedidos (PedidoID, ClienteID, CiudadID, FechaID, Total)
+SELECT p.PedidoID, p.ClienteID, dc.CiudadID, 1, p.Total -- FechaID 1 como dummy
+FROM Pedidos p
+JOIN Clientes c ON p.ClienteID = c.ClienteID
+JOIN Dim_Ciudad dc ON c.Ciudad = dc.Ciudad;
+
+-- 4. Consulta Analítica: Ventas por Ciudad[cite: 7]
+SELECT dc.Ciudad, SUM(fp.Total) AS VentasTotales
+FROM Fact_Pedidos fp
+JOIN Dim_Ciudad dc ON fp.CiudadID = dc.CiudadID
+GROUP BY dc.Ciudad;
+
+-- ========================================
 -- COMMIT FINAL - Guardar Todos los Cambios
 -- ========================================
 COMMIT;
