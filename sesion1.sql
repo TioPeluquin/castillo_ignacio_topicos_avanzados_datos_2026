@@ -1042,6 +1042,321 @@ JOIN Dim_Ciudad dc ON fp.CiudadID = dc.CiudadID
 GROUP BY dc.Ciudad;
 
 -- ========================================
+-- EJERCICIO PRÁCTICO - SESIÓN 14 (HERENCIA)
+-- ========================================
+CREATE OR REPLACE TYPE persona_obj AS OBJECT (
+    persona_id NUMBER,
+    nombre VARCHAR2(50),
+    ciudad VARCHAR2(50),
+    MEMBER FUNCTION get_info RETURN VARCHAR2
+) NOT FINAL;
+/
+
+CREATE OR REPLACE TYPE BODY persona_obj AS
+    MEMBER FUNCTION get_info RETURN VARCHAR2 IS
+    BEGIN
+        RETURN 'Persona ID: ' || persona_id || ', Nombre: ' || nombre || ', Ciudad: ' || ciudad;
+    END;
+END;
+/
+
+CREATE OR REPLACE TYPE cliente_persona_obj UNDER persona_obj (
+    monto_total NUMBER,
+    MEMBER FUNCTION get_cliente_info RETURN VARCHAR2
+);
+/
+
+CREATE OR REPLACE TYPE BODY cliente_persona_obj AS
+    MEMBER FUNCTION get_cliente_info RETURN VARCHAR2 IS
+    BEGIN
+        RETURN get_info() || ', Total Gastos: ' || monto_total;
+    END;
+END;
+/
+
+CREATE OR REPLACE TYPE empleado_obj UNDER persona_obj (
+    departamento VARCHAR2(50),
+    salario NUMBER,
+    MEMBER FUNCTION get_empleado_info RETURN VARCHAR2
+);
+/
+
+CREATE OR REPLACE TYPE BODY empleado_obj AS
+    MEMBER FUNCTION get_empleado_info RETURN VARCHAR2 IS
+    BEGIN
+        RETURN get_info() || ', Departamento: ' || departamento || ', Salario: ' || salario;
+    END;
+END;
+/
+
+CREATE TABLE personas_obj OF persona_obj (
+    persona_id PRIMARY KEY
+);
+
+INSERT INTO personas_obj VALUES (cliente_persona_obj(10, 'Sofía Pérez', 'Concepción', 950));
+INSERT INTO personas_obj VALUES (empleado_obj(20, 'Andrés Fuentes', 'Santiago', 'Ventas', 850000));
+
+COMMIT;
+
+SELECT p.persona_id,
+       p.nombre,
+       p.ciudad,
+       CASE 
+           WHEN VALUE(p) IS OF (cliente_persona_obj) THEN 'Cliente'
+           WHEN VALUE(p) IS OF (empleado_obj) THEN 'Empleado'
+           ELSE 'Persona'
+       END AS Tipo,
+       TREAT(VALUE(p) AS cliente_persona_obj).monto_total AS MontoTotal,
+       TREAT(VALUE(p) AS empleado_obj).departamento AS Departamento,
+       TREAT(VALUE(p) AS empleado_obj).salario AS Salario
+FROM personas_obj p;
+
+SELECT VALUE(p).get_info() AS InfoBase
+FROM personas_obj p;
+
+SELECT TREAT(VALUE(p) AS cliente_persona_obj).get_cliente_info() AS InfoCliente
+FROM personas_obj p
+WHERE VALUE(p) IS OF (cliente_persona_obj);
+
+SELECT TREAT(VALUE(p) AS empleado_obj).get_empleado_info() AS InfoEmpleado
+FROM personas_obj p
+WHERE VALUE(p) IS OF (empleado_obj);
+
+-- ========================================
+-- EJERCICIO PRÁCTICO - SESIÓN 15 (PAQUETES PL/SQL)
+-- ========================================
+CREATE OR REPLACE PACKAGE pkg_pedidos AS
+    PROCEDURE registrar_pedido(
+        p_pedido_id NUMBER,
+        p_cliente_id NUMBER,
+        p_total NUMBER,
+        p_fecha_pedido DATE
+    );
+
+    FUNCTION total_pedidos_cliente(p_cliente_id NUMBER) RETURN NUMBER;
+
+    PROCEDURE mostrar_resumen_cliente(p_cliente_id NUMBER);
+END pkg_pedidos;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_pedidos AS
+    PROCEDURE registrar_pedido(
+        p_pedido_id NUMBER,
+        p_cliente_id NUMBER,
+        p_total NUMBER,
+        p_fecha_pedido DATE
+    ) IS
+    BEGIN
+        INSERT INTO Pedidos (PedidoID, ClienteID, Total, FechaPedido)
+        VALUES (p_pedido_id, p_cliente_id, p_total, p_fecha_pedido);
+
+        DBMS_OUTPUT.PUT_LINE('Pedido registrado: ' || p_pedido_id || ' para cliente ' || p_cliente_id);
+    EXCEPTION
+        WHEN DUP_VAL_ON_INDEX THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: El pedido ' || p_pedido_id || ' ya existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR al registrar pedido: ' || SQLERRM);
+    END registrar_pedido;
+
+    FUNCTION total_pedidos_cliente(p_cliente_id NUMBER) RETURN NUMBER IS
+        v_total NUMBER;
+    BEGIN
+        SELECT COUNT(*) INTO v_total
+        FROM Pedidos
+        WHERE ClienteID = p_cliente_id;
+
+        RETURN NVL(v_total, 0);
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN 0;
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR al contar pedidos: ' || SQLERRM);
+            RETURN 0;
+    END total_pedidos_cliente;
+
+    PROCEDURE mostrar_resumen_cliente(p_cliente_id NUMBER) IS
+        v_nombre VARCHAR2(50);
+        v_total_gastado NUMBER;
+    BEGIN
+        SELECT Nombre INTO v_nombre FROM Clientes WHERE ClienteID = p_cliente_id;
+        SELECT NVL(SUM(Total), 0) INTO v_total_gastado FROM Pedidos WHERE ClienteID = p_cliente_id;
+
+        DBMS_OUTPUT.PUT_LINE('Resumen cliente ' || p_cliente_id || ': ' || v_nombre);
+        DBMS_OUTPUT.PUT_LINE('Total de pedidos: ' || total_pedidos_cliente(p_cliente_id));
+        DBMS_OUTPUT.PUT_LINE('Total gastado: ' || v_total_gastado);
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: Cliente ' || p_cliente_id || ' no existe.');
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR al mostrar resumen: ' || SQLERRM);
+    END mostrar_resumen_cliente;
+END pkg_pedidos;
+/
+
+BEGIN
+    pkg_pedidos.registrar_pedido(105, 4, 550, TO_DATE('2025-03-05', 'YYYY-MM-DD'));
+    pkg_pedidos.registrar_pedido(106, 2, 410, TO_DATE('2025-03-06', 'YYYY-MM-DD'));
+    DBMS_OUTPUT.PUT_LINE('Total pedidos cliente 4: ' || pkg_pedidos.total_pedidos_cliente(4));
+    pkg_pedidos.mostrar_resumen_cliente(4);
+END;
+/
+
+-- ========================================
+-- EJERCICIO PRÁCTICO - SESIÓN 16 (AUDITORÍA Y TRANSACCIONES)
+-- ========================================
+CREATE TABLE auditoria_pedidos (
+    audit_id NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY PRIMARY KEY,
+    pedido_id NUMBER,
+    accion VARCHAR2(30),
+    fecha TIMESTAMP,
+    comentario VARCHAR2(200)
+);
+/
+
+CREATE OR REPLACE TRIGGER trg_auditoria_pedidos
+AFTER INSERT OR UPDATE OR DELETE ON Pedidos
+FOR EACH ROW
+DECLARE
+    PRAGMA AUTONOMOUS_TRANSACTION;
+BEGIN
+    IF INSERTING THEN
+        INSERT INTO auditoria_pedidos(pedido_id, accion, fecha, comentario)
+        VALUES(:NEW.PedidoID, 'INSERT', SYSTIMESTAMP, 'Pedido creado');
+    ELSIF UPDATING THEN
+        INSERT INTO auditoria_pedidos(pedido_id, accion, fecha, comentario)
+        VALUES(:NEW.PedidoID, 'UPDATE', SYSTIMESTAMP, 'Pedido actualizado: total ' || :NEW.Total);
+    ELSIF DELETING THEN
+        INSERT INTO auditoria_pedidos(pedido_id, accion, fecha, comentario)
+        VALUES(:OLD.PedidoID, 'DELETE', SYSTIMESTAMP, 'Pedido eliminado');
+    END IF;
+    COMMIT;
+END;
+/
+
+CREATE OR REPLACE PROCEDURE procesar_pedido_con_inventario(p_pedido_id IN NUMBER) AS
+    CURSOR c_detalles IS
+        SELECT ProductoID, Cantidad
+        FROM DetallesPedidos
+        WHERE PedidoID = p_pedido_id;
+    v_stock NUMBER;
+BEGIN
+    FOR r IN c_detalles LOOP
+        SELECT Cantidad INTO v_stock
+        FROM Inventario
+        WHERE ProductoID = r.ProductoID
+        FOR UPDATE;
+
+        IF v_stock < r.Cantidad THEN
+            RAISE_APPLICATION_ERROR(-20010, 'Stock insuficiente para producto ' || r.ProductoID);
+        END IF;
+
+        UPDATE Inventario
+        SET Cantidad = Cantidad - r.Cantidad
+        WHERE ProductoID = r.ProductoID;
+    END LOOP;
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR en procesar pedido: ' || SQLERRM);
+        ROLLBACK;
+END procesar_pedido_con_inventario;
+/
+
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('=== PRUEBA SESIÓN 16: Auditoría y transacciones ===');
+    procesar_pedido_con_inventario(101);
+    DBMS_OUTPUT.PUT_LINE('Inventario actualizado.');
+END;
+/
+
+SELECT * FROM auditoria_pedidos;
+
+-- ========================================
+-- EJERCICIO PRÁCTICO - SESIÓN 17 (VISTAS MATERIALIZADAS Y FUNCIONES ANALÍTICAS)
+-- ========================================
+CREATE MATERIALIZED VIEW mv_ventas_por_ciudad
+REFRESH FAST ON DEMAND
+AS
+SELECT c.Ciudad,
+       COUNT(p.PedidoID) AS TotalPedidos,
+       SUM(p.Total) AS TotalVentas,
+       AVG(p.Total) AS PromedioVenta
+FROM Clientes c
+JOIN Pedidos p ON c.ClienteID = p.ClienteID
+GROUP BY c.Ciudad;
+/
+
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Refrescando vista materializada de ventas por ciudad...');
+    DBMS_MVIEW.REFRESH('MV_VENTAS_POR_CIUDAD');
+    DBMS_OUTPUT.PUT_LINE('Vista materializada actualizada.');
+END;
+/
+
+SELECT * FROM mv_ventas_por_ciudad;
+
+CREATE OR REPLACE PROCEDURE mostrar_top_clientes(p_limite NUMBER) AS
+BEGIN
+    FOR rec IN (
+        SELECT c.ClienteID,
+               c.Nombre,
+               SUM(p.Total) AS TotalGastado,
+               RANK() OVER (ORDER BY SUM(p.Total) DESC) AS Posicion
+        FROM Clientes c
+        JOIN Pedidos p ON c.ClienteID = p.ClienteID
+        GROUP BY c.ClienteID, c.Nombre
+        ORDER BY Posicion
+    ) LOOP
+        EXIT WHEN rec.Posicion > p_limite;
+        DBMS_OUTPUT.PUT_LINE('Pos ' || rec.Posicion || ' - Cliente ' || rec.Nombre || ' | Gastado ' || rec.TotalGastado);
+    END LOOP;
+END mostrar_top_clientes;
+/
+
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('=== PRUEBA SESIÓN 17: Top clientes ===');
+    mostrar_top_clientes(3);
+END;
+/
+
+-- ========================================
+-- EJERCICIO PRÁCTICO - SESIÓN 18 (SEGURIDAD Y ROLES)
+-- ========================================
+CREATE ROLE rol_analista;
+/
+
+CREATE USER analista IDENTIFIED BY analista2026;
+/
+
+GRANT CREATE SESSION TO analista;
+GRANT rol_analista TO analista;
+GRANT SELECT ON Clientes TO rol_analista;
+GRANT SELECT ON Pedidos TO rol_analista;
+GRANT SELECT ON Productos TO rol_analista;
+GRANT SELECT ON DetallesPedidos TO rol_analista;
+GRANT SELECT ON v_clientes_pedidos TO rol_analista;
+GRANT SELECT ON v_detalles_productos TO rol_analista;
+GRANT SELECT ON mv_ventas_por_ciudad TO rol_analista;
+/
+
+CREATE OR REPLACE PROCEDURE otorgar_permiso_analista(p_usuario VARCHAR2) AS
+BEGIN
+    EXECUTE IMMEDIATE 'GRANT rol_analista TO ' || p_usuario;
+    DBMS_OUTPUT.PUT_LINE('Rol analista otorgado a: ' || p_usuario);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR al otorgar rol: ' || SQLERRM);
+END otorgar_permiso_analista;
+/
+
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('=== PRUEBA SESIÓN 18: Seguridad y roles ===');
+    otorgar_permiso_analista('ANALISTA');
+END;
+/
+
+-- ========================================
 -- COMMIT FINAL - Guardar Todos los Cambios
 -- ========================================
 COMMIT;
@@ -1053,11 +1368,24 @@ BEGIN
     DBMS_OUTPUT.PUT_LINE('Ejercicios implementados:');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 1: Tablas y datos base');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 1: Vistas y expresiones regulares');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 2: Consultas y vistas');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 3: Bloque anónimo con clasificación');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 4: Manejo de excepciones personalizadas');
-    DBMS_OUTPUT.PUT_LINE('✓ Sesión 4: Manejo de violación de claves');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 4: Manejo de violaciones de clave');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 5: Cursor explícito básico');
     DBMS_OUTPUT.PUT_LINE('✓ Sesión 5: Cursor explícito con parámetro');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 6: Objetos y cursores de objetos');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 7: Procedimientos almacenados');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 8: Vistas y excepciones avanzadas');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 10: Procedimientos almacenados avanzados');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 11: Funciones almacenadas');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 12: Descuentos y triggers');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 13: Inventario y Data Warehouse');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 14: Herencia de tipos');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 15: Paquetes PL/SQL');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 16: Auditoría y transacciones');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 17: Materializadas y analíticas');
+    DBMS_OUTPUT.PUT_LINE('✓ Sesión 18: Seguridad y roles');
     DBMS_OUTPUT.PUT_LINE('========================================');
     DBMS_OUTPUT.PUT_LINE('Todos los cambios han sido guardados.');
     DBMS_OUTPUT.PUT_LINE('========================================');
